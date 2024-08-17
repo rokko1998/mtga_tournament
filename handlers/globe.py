@@ -41,18 +41,14 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.callback_query(F.data == 'find_game')
 async def find_game(callback: CallbackQuery, state: FSMContext):
     dates = await nearest_weekend()
+    print(f"\033[92m{dates}\033[0m")
+    tournaments = await AsyncCore.get_tournament_by_date(dates)
+    print(f"\033[92m{tournaments}\033[0m")
     keyboard = InlineKeyboardBuilder()
 
-    for date in dates:
-        tournament = await AsyncCore.get_tournament_by_date(date)
-        if tournament:
-            # Если турнир с такой датой уже существует
-            tournament_id = tournament.id
-            tournament_name = tournament.name
-        else:
-            # Если турнира с такой датой нет, создаём новый
-            tournament_id, tournament_name = await AsyncCore.create_tournament(date)
-
+    for tournament in tournaments:
+        tournament_id = tournament.id
+        tournament_name = tournament.name
         keyboard.button(
             text=f'{tournament_name}',
             callback_data=f'tournament_{tournament_id}'
@@ -127,6 +123,7 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
             sets = await AsyncCore.get_set()
             for set in sets:
                 set_kb.button(text=set.name, callback_data=set.id)
+            set_kb.button(text='Back', callback_data='back_to_find_menu')
         else:
             winning_set_name = (
                 tournament.winning_set.description if tournament.winning_set else "Сет еще не определен"
@@ -144,8 +141,6 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
             for set in sets:
                 set_kb.button(text=set.name, callback_data=set.id)
         await callback.message.edit_text(text=message, reply_markup=set_kb)
-
-
     else:
         await state.set_state(MyGames.my_games_menu)
         keyboard = InlineKeyboardBuilder()
@@ -191,29 +186,29 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
 
 
 
-#
-# @router.callback_query(F.data == 'find_game')
-# async def find_game(callback: CallbackQuery):
-#     dates = await nearest_weekend()
-#     #tournament_ids = []
-#     keyboard = InlineKeyboardBuilder()
-#     for date in dates:
-#         element = await AsyncCore.create_tournament(date)
-#         #tournament_ids.append(tournament_id)
-#         keyboard.button(text=str(element), callback_data=f'tournament_{element}')
-#     await callback.answer('Турнир выбран!')
-#     #await state.update_data(chdate=callback.data)
-#     #await state.set_state(cg_state.ch_set)
-#     await callback.message.edit_text('chose tournament:', reply_markup= keyboard.adjust(3).as_markup())
-#
-#
-# @router.message(F.text=='Найти игру')
-# async def create_game(message: Message, state: FSMContext):
-#     await state.set_state(FindGame.find_menu)
-#     await message.answer(f'Давай начнем!\n'
-#                          f'Для начала выбери когда тебе будет удобно играть:',
-#                          reply_markup= await nearest_game())
-#
+
+@router.callback_query(F.data == 'find_game')
+async def find_game(callback: CallbackQuery):
+    dates = await nearest_weekend()
+    #tournament_ids = []
+    keyboard = InlineKeyboardBuilder()
+    for date in dates:
+        element = await AsyncCore.create_tournament(date)
+        #tournament_ids.append(tournament_id)
+        keyboard.button(text=str(element), callback_data=f'tournament_{element}')
+    await callback.answer('Турнир выбран!')
+    #await state.update_data(chdate=callback.data)
+    #await state.set_state(cg_state.ch_set)
+    await callback.message.edit_text('chose tournament:', reply_markup= keyboard.adjust(3).as_markup())
+
+
+@router.message(F.text=='Найти игру')
+async def create_game(message: Message, state: FSMContext):
+    await state.set_state(FindGame.find_menu)
+    await message.answer(f'Давай начнем!\n'
+                         f'Для начала выбери когда тебе будет удобно играть:',
+                         reply_markup= await nearest_game())
+
 
 
 # Callback хендлеры (через роутер)

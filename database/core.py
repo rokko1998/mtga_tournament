@@ -3,6 +3,10 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload, joinedload
 from database.models import *
+from datetime import datetime, timedelta
+
+
+
 
 engine = create_async_engine(url='sqlite+aiosqlite:///tg_bot_db.sqlite3', echo=True)
 async_session = async_sessionmaker(engine)
@@ -32,16 +36,29 @@ class AsyncCore:
             result = await session.execute(stmt)
             return result.scalars().unique().one_or_none()
 
+    @staticmethod
+    async def get_tournaments_for_current_week():
+        async with async_session as session:
+            # Определяем начало и конец текущей недели
+            today = datetime.today()
+            start_of_week = today - timedelta(days=today.weekday())  # Понедельник текущей недели
+            end_of_week = start_of_week + timedelta(days=6)  # Воскресенье текущей недели
 
-    # @staticmethod
-    # async def get_set():
-    #     async with async_session() as session:
-    #         return await session.scalar(select(SetORM)).all()
+            # Запрашиваем турниры, проходящие на текущей неделе
+            query = (
+                select(TournamentORM)
+                .where(TournamentORM.date >= start_of_week)
+                .where(TournamentORM.date <= end_of_week)
+            )
+            # Выполняем запрос и возвращаем результат
+            result = await session.execute(query)
+            return result.scalars().all()
 
     @staticmethod
     async def get_set():
         async with async_session() as session:
-            return (await session.scalars(select(SetORM))).all()
+            return await session.scalar(select(SetORM)).all()
+
     @staticmethod
     async def get_user_sts(tg_id: BigInteger):
         async with async_session() as session:
@@ -61,7 +78,6 @@ class AsyncCore:
             )
 
             if user is None:
-                print("Залупа")
                 return []  # Возвращаем пустой список, если пользователь не найден
 
             # Запрашиваем турниры, в которых зарегистрирован этот пользователь
@@ -72,15 +88,19 @@ class AsyncCore:
                 .options(selectinload(TournamentORM.registrations))
             )
             return result.scalars().all()  # Возвращаем список турниров
+    #
+    # @staticmethod
+    # async def get_tournament_by_date(date: datetime):
+    #     async with async_session() as session:
+    #         return await session.scalar(select(TournamentORM).where(TournamentORM.date == date))
 
     @staticmethod
-    async def get_tournament_by_date(date: datetime.datetime):
+    async def get_tournament_by_date(dates: list[datetime]):
         async with async_session() as session:
-            return await session.scalar(select(TournamentORM).where(TournamentORM.date == date))
-
+            return await session.scalars(select(TournamentORM).where(TournamentORM.date.in_(dates)))
 
     @staticmethod
-    async def create_tournament(date: datetime.datetime):
+    async def create_tournament(date: datetime):
         """Создает турнир на указанную дату и возвращает его ID."""
         async with async_session() as session:
             result = await session.execute(
@@ -117,7 +137,7 @@ class AsyncCore:
                 session.add(registration)
     #
     # @staticmethod
-    # async def create_tournament(name: str, date: datetime.datetime, status: str, set_name: str):
+    # async def create_tournament(name: str, date: datetime, status: str, set_name: str):
     #     """Создает новый турнир."""
     #     async with async_session() as session:
     #         async with session.begin():
@@ -126,8 +146,8 @@ class AsyncCore:
     #                 date=date,
     #                 status=TournamentStatus.UPCOMING,
     #                 set="",
-    #                 created_at=datetime.datetime.utcnow(),
-    #                 updated_at=datetime.datetime.utcnow(),
+    #                 created_at=datetime.utcnow(),
+    #                 updated_at=datetime.utcnow(),
     #             )
     #             session.add(tournament)
 
