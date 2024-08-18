@@ -51,7 +51,7 @@ class UserORM(Base):
                                                                 foreign_keys='MatchORM.player2_id')
     set_stats: Mapped[List['SetStatsORM']] = Relationship(back_populates='user')
     tournament_stats: Mapped[List['TournamentStatsORM']] = Relationship(back_populates='user')
-    accounts: Mapped[list['MtgORM']] = Relationship('MtgORM', back_populates='user', cascade="all, delete-orphan")
+    accounts: Mapped[List['MtgORM']] = Relationship('MtgORM', back_populates='user', cascade="all, delete-orphan")
 
 
     # чето ленивая загрузка возникает, буду менять во внешнем коде, когда закончу с match логику вернусь посмотрю

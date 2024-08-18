@@ -43,6 +43,7 @@ async def find_game(callback: CallbackQuery, state: FSMContext):
     dates = await nearest_weekend()
     # print(f"\033[92m{dates}\033[0m")
     tournaments = await AsyncCore.upsert_tournaments(dates)
+    print(f"\033[92m AsyncCore.upsert_tournaments - ok \033[0m")
     keyboard = InlineKeyboardBuilder()
 
     for tournament in tournaments:
@@ -58,6 +59,33 @@ async def find_game(callback: CallbackQuery, state: FSMContext):
     await state.set_state(FindGame.find_menu)
     await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
 
+
+# Хендлер кнопки "Назад" из меню "Найти игру" (выбора из списка турниров)
+@router.callback_query(F.data == 'back_to_start')
+async def find_game(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    sts = await AsyncCore.get_user_sts(callback.from_user.id)
+    # print(f"\033[92m {sts} - ok \033[0m")
+    # print(f"\033[92m AsyncCore.get_user_sts (F.data == back_to_start) - ok \033[0m")
+
+    total_games = sts.wins + sts.losses
+    if total_games > 0:
+        winrate = (sts.wins / total_games) * 100
+        winrate_text = f"{winrate:.2f}%"
+    else:
+        winrate_text = "N/A"
+
+    new_text = (f'Привет, {sts.username},\n'
+                f'Добро пожаловать в таверну "Гнутая мишень"!\n'
+                f'Здесь ты можешь записаться на драфт в МТГА\n\n'
+                f'Твоя статистика:\n'
+                f'Количество побед: {sts.wins}\n'
+                f'Винрейт: {winrate_text}')
+
+    await callback.message.edit_text(text=new_text, reply_markup=start_kb)
+
+
 # Хендлер кнопки "Турнир #id" в меню "Найти игру", выводит инфу по турниру и разные кнопки
 @router.callback_query(FindGame.find_menu)
 async def tournament_info(callback: CallbackQuery, state: FSMContext):
@@ -65,6 +93,7 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     await state.update_data(tournament_id=tournament_id)
     tournament = await AsyncCore.tournament_details(tournament_id)
+    print(f"\033[92m AsyncCore.tournament_details - ok \033[0m")
     # Извлечение данных
     registered_players = tournament.registrations
     set_votes = tournament.set_votes
@@ -125,7 +154,7 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == 'my_games')
 async def tournament_info(callback: CallbackQuery, state: FSMContext):
     tnmts = await AsyncCore.get_user_tournaments(callback.from_user.id)
-
+    print(f"\033[92m AsyncCore.get_user_tournaments - ok \033[0m")
     if not tnmts:
         dates = await nearest_weekend()
         keyboard = InlineKeyboardBuilder()
@@ -144,14 +173,12 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
                 text=f'{tournament_name}',
                 callback_data=f'tournament_{tournament_id}'
             )
-        keyboard.adjust(2)  # Сначала настраиваем кнопки
         keyboard.button(text='Назад', callback_data='back_to_start')
-        keyboard.adjust(2)  # Устанавливаем, что кнопка "Назад" будет одна на своей строке
 
         await callback.answer(f'У вас нет активных турниров\n'
                               f'Вы перенаправлены в меню Поиска игры')
         await state.set_state(FindGame.find_menu)
-        await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.as_markup())
+        await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
     elif len(tnmts) == 1:
         tournament = tnmts[0]
         await state.set_state(MyGames.registered_tournament_info)

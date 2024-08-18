@@ -117,7 +117,7 @@ class AsyncCore:
             return await session.scalar(select(TournamentORM).where(TournamentORM.id == tnmt_id))
 
     @staticmethod   # Выгружват все турниры для конкретного пользователя по tg_id.
-    async def get_user_tournaments(tg_id: int):
+    async def get_user_tournaments(tg_id: BigInteger):
         async with async_session() as session:
             # Сначала находим пользователя по tg_id
             user = await session.scalar(
@@ -135,16 +135,16 @@ class AsyncCore:
                 .options(selectinload(TournamentORM.registrations))
             )
             return result.scalars().all()  # Возвращаем список турниров
-    #
-    # @staticmethod
-    # async def get_tournament_by_date(date: datetime):
-    #     async with async_session() as session:
-    #         return await session.scalar(select(TournamentORM).where(TournamentORM.date == date))
 
     @staticmethod
-    async def get_tournament_by_date(dates: list[datetime]):
+    async def get_tournament_by_date(date: datetime):
         async with async_session() as session:
-            return await session.scalars(select(TournamentORM).where(TournamentORM.date.in_(dates)))
+            return await session.scalar(select(TournamentORM).where(TournamentORM.date == date))
+
+    # @staticmethod
+    # async def get_tournament_by_date(dates: list[datetime]):
+    #     async with async_session() as session:
+    #         return await session.scalars(select(TournamentORM).where(TournamentORM.date.in_(dates)))
     #
 
 

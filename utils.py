@@ -2,16 +2,19 @@ from datetime import datetime, timedelta
 
 async def nearest_weekend():
     today = datetime.today().date()  # Получаем текущую дату
-    days_until_saturday = (5 - today.weekday() + 7) % 7
-    days_until_sunday = (6 - today.weekday() + 7) % 7
+    weekday = today.weekday()
 
-    if days_until_saturday == 0:
-        days_until_saturday = 7
-    if days_until_sunday == 0:
-        days_until_sunday = 7
-
-    next_saturday = today + timedelta(days=days_until_saturday)
-    next_sunday = today + timedelta(days=days_until_sunday)
+    if weekday == 5:  # Сегодня суббота
+        next_saturday = today
+        next_sunday = today + timedelta(days=1)
+    elif weekday == 6:  # Сегодня воскресенье
+        next_saturday = today + timedelta(days=6)
+        next_sunday = today
+    else:  # Любой другой день
+        days_until_saturday = 5 - weekday
+        days_until_sunday = 6 - weekday
+        next_saturday = today + timedelta(days=days_until_saturday)
+        next_sunday = today + timedelta(days=days_until_sunday)
 
     dates = [
         datetime(next_saturday.year, next_saturday.month, next_saturday.day, 12, 0),
