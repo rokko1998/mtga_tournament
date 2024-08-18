@@ -1,7 +1,7 @@
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.enums import chat_action
 from keyboards.main_kb import start_kb, nearest_weekend
@@ -97,9 +97,14 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text(text=message, reply_markup=keyboard.adjust(2).as_markup())
         else:
             await state.set_state(FindGame.tournament_info)
-            keyboard.button(text='Обновить', callback_data=f'refresh_{tournament_id}')
-            keyboard.button(text='Назад', callback_data='find_game')
-            await callback.message.edit_text(text=message, reply_markup=keyboard.adjust(2).as_markup())
+            keyboard.row(
+                InlineKeyboardButton(text='Зарегистрироваться', callback_data=f'reg_{tournament_id}')
+            )
+            keyboard.row(
+                InlineKeyboardButton(text='Обновить', callback_data=f'refresh_{tournament_id}'),
+                InlineKeyboardButton(text='Назад', callback_data='find_game')
+            )
+            await callback.message.edit_text(text=message, reply_markup=keyboard.as_markup())
 
     elif tournament.status == TournamentStatus.UPCOMING:
         if user_registered:
