@@ -1,9 +1,10 @@
 import datetime
 import enum
 
-from sqlalchemy import BigInteger, ForeignKey, func, String
+from sqlalchemy import BigInteger, ForeignKey, func, String, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Relationship, mapped_column
 from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.ext.hybrid import hybrid_property
 from typing import Annotated, List
 
 str_256 = Annotated[str, mapped_column(String(256))]
@@ -36,7 +37,7 @@ class UserORM(Base):
     id: Mapped[int_pk]
     tg_id = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str_256]
-    wins: Mapped[stat]
+    wins: Mapped[stat] #int dflt-0 количество побед
     losses: Mapped[stat]
     created_at: Mapped[created_at]
     updated_at: Mapped[updated_at]
@@ -52,6 +53,41 @@ class UserORM(Base):
     tournament_stats: Mapped[List['TournamentStatsORM']] = Relationship(back_populates='user')
     accounts: Mapped[list['MtgORM']] = Relationship('MtgORM', back_populates='user', cascade="all, delete-orphan")
 
+
+    # чето ленивая загрузка возникает, буду менять во внешнем коде, когда закончу с match логику вернусь посмотрю
+    # @hybrid_property
+    # def wins(self):
+    #     return len([match for match in self.matches_as_player1 if match.result == 'player1_win']) + \
+    #         len([match for match in self.matches_as_player2 if match.result == 'player2_win'])
+    #
+    # @wins.expression
+    # def wins(cls):
+    #     return (
+    #         select([func.count(MatchORM.id)])
+    #         .where(
+    #             ((MatchORM.player1_id == cls.id) & (MatchORM.result == 'player1_win')) |
+    #             ((MatchORM.player2_id == cls.id) & (MatchORM.result == 'player2_win'))
+    #         )
+    #         .correlate(cls)
+    #         .label("wins")
+    #     )
+    #
+    # @hybrid_property
+    # def losses(self):
+    #     return len([match for match in self.matches_as_player1 if match.result == 'player2_win']) + \
+    #            len([match for match in self.matches_as_player2 if match.result == 'player1_win'])
+    #
+    # @losses.expression
+    # def losses(cls):
+    #     return (
+    #         select([func.count(MatchORM.id)])
+    #         .where(
+    #             ((MatchORM.player1_id == cls.id) & (MatchORM.result == 'player2_win')) |
+    #             ((MatchORM.player2_id == cls.id) & (MatchORM.result == 'player1_win'))
+    #         )
+    #         .correlate(cls)
+    #         .label("losses")
+    #     )
 
 class MtgORM(Base):
     __tablename__ = 'mtg_accounts'

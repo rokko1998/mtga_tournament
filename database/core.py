@@ -17,8 +17,58 @@ class AsyncCore:
     async def create_tables():
         """Создает все таблицы в базе данных."""
         async with engine.begin() as conn:
-            # await conn.run_sync(Base.metadata.drop_all)
+            # await conn.run_sync(Base.metadata.drop_all) удаляет все таблицы
             await conn.run_sync(Base.metadata.create_all)
+
+    @staticmethod
+    async def add_user(tg_id: BigInteger, username: str):
+        """Добавляет нового пользователя в базу данных."""
+        async with async_session() as session:
+            await session.execute(insert(UserORM).values(tg_id=tg_id, username=username).prefix_with("OR IGNORE"))
+            await session.commit()
+
+
+    @staticmethod
+    async def get_user_sts(tg_id: BigInteger):
+        async with async_session() as session:
+            return await session.scalar(select(UserORM).where(UserORM.tg_id == tg_id))
+
+    @staticmethod
+    async def upsert_tournaments(dates: list) -> list:
+        """Проверяет существование турниров на указанные даты и создает новые, если необходимо."""
+        async with async_session() as session:
+            # Получаем существующие турниры на указанные даты
+            stmt = select(TournamentORM).where(TournamentORM.date.in_(dates))
+            result = await session.execute(stmt)
+            existing_tournaments = result.scalars().all()
+            existing_dates = {t.date for t in existing_tournaments}
+
+            # Определяем даты, для которых нужно создать новые турниры
+            new_dates = [date for date in dates if date not in existing_dates]
+
+            new_tournaments = []
+            if new_dates:
+                # Создаем новые турниры для недостающих дат
+                insert_stmt = insert(TournamentORM).values(
+                    [
+                        {
+                            'name': f"Турнир {date.strftime('%Y-%m-%d %H:%M')}",
+                            'date': date,
+                            'status': TournamentStatus.PLANNED
+                        }
+                        for date in new_dates
+                    ]
+                ).returning(TournamentORM.id, TournamentORM.name)
+
+                result = await session.execute(insert_stmt)
+                await session.commit()
+                new_tournaments = result.fetchall()
+
+            # Объединяем существующие и новые турниры
+            all_tournaments = existing_tournaments + [t._asdict() for t in new_tournaments]
+
+            return all_tournaments
+
 
     @staticmethod
     async def tournament_details(tournament_id: int):
@@ -35,6 +85,13 @@ class AsyncCore:
             )
             result = await session.execute(stmt)
             return result.scalars().unique().one_or_none()
+
+
+    @staticmethod
+    async def get_set():
+        async with async_session() as session:
+            return await session.scalar(select(SetORM)).all()
+
 
     @staticmethod
     async def get_tournaments_for_current_week():
@@ -53,16 +110,6 @@ class AsyncCore:
             # Выполняем запрос и возвращаем результат
             result = await session.execute(query)
             return result.scalars().all()
-
-    @staticmethod
-    async def get_set():
-        async with async_session() as session:
-            return await session.scalar(select(SetORM)).all()
-
-    @staticmethod
-    async def get_user_sts(tg_id: BigInteger):
-        async with async_session() as session:
-            return await session.scalar(select(UserORM).where(UserORM.tg_id == tg_id))
 
     @staticmethod
     async def get_tournament(tnmt_id: int):
@@ -98,29 +145,25 @@ class AsyncCore:
     async def get_tournament_by_date(dates: list[datetime]):
         async with async_session() as session:
             return await session.scalars(select(TournamentORM).where(TournamentORM.date.in_(dates)))
+    #
 
-    @staticmethod
-    async def create_tournament(date: datetime):
-        """Создает турнир на указанную дату и возвращает его ID."""
-        async with async_session() as session:
-            result = await session.execute(
-                 insert(TournamentORM)
-                .values(
-                    name=f"Турнир {date.strftime('%Y-%m-%d %H:%M')}",
-                    date=date,
-                    status=TournamentStatus.PLANNED,
-                )
-                .returning(TournamentORM.id, TournamentORM.name)
-            )
-            await session.commit()
-            return result.fetchone()
 
-    @staticmethod
-    async def add_user(tg_id: BigInteger, username: str):
-        """Добавляет нового пользователя в базу данных."""
-        async with async_session() as session:
-            await session.execute(insert(UserORM).values(tg_id=tg_id, username=username).prefix_with("OR IGNORE"))
-            await session.commit()
+    # @staticmethod
+    # async def create_tournament(date: datetime):
+    #     """Создает турнир на указанную дату и возвращает его ID."""
+    #     async with async_session() as session:
+    #         result = await session.execute(
+    #             insert(TournamentORM)
+    #             .values(
+    #                 name=f"Турнир {date.strftime('%Y-%m-%d %H:%M')}",
+    #                 date=date,
+    #                 status=TournamentStatus.PLANNED,
+    #             )
+    #             .returning(TournamentORM.id, TournamentORM.name)
+    #         )
+    #         await session.commit()
+    #         return result.fetchone()
+
 
     @staticmethod
     async def get_user_by_tg_id(tg_id: int):
