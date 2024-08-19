@@ -62,7 +62,7 @@ async def find_game(callback: CallbackQuery, state: FSMContext):
 
 # Хендлер кнопки "Назад" из меню "Найти игру" (выбора из списка турниров)
 @router.callback_query(F.data == 'back_to_start')
-async def find_game(callback: CallbackQuery, state: FSMContext):
+async def back_to_start(callback: CallbackQuery, state: FSMContext):
     await state.clear()
 
     sts = await AsyncCore.get_user_sts(callback.from_user.id)
@@ -88,12 +88,12 @@ async def find_game(callback: CallbackQuery, state: FSMContext):
 
 # Хендлер кнопки "Турнир #id" в меню "Найти игру", выводит инфу по турниру и разные кнопки
 @router.callback_query(FindGame.find_menu)
-async def tournament_info(callback: CallbackQuery, state: FSMContext):
+async def find_menu(callback: CallbackQuery, state: FSMContext):
     tournament_id = callback.data.split("_")[1]
     user_id = callback.from_user.id
-    await state.update_data(tournament_id=tournament_id)
+    await state.update_data(tournament_id=str(tournament_id))
     tournament = await AsyncCore.tournament_details(tournament_id)
-    print(f"\033[92m AsyncCore.tournament_details - ok \033[0m")
+    # print(f"\033[92m AsyncCore.tournament_details - ok \033[0m")
     # Извлечение данных
     registered_players = tournament.registrations
     set_votes = tournament.set_votes
@@ -150,6 +150,39 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
 
 
     #пытаюсь собрать этот большой и сложный хендлер
+
+@router.callback_query(FindGame.tournament_info)
+async def tournament_info(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FindGame.vote_for_set)
+    sets = await AsyncCore.get_set()
+    keyboard = InlineKeyboardBuilder()
+    for set in sets:
+        keyboard.button(text=set.set_name, callback_data=f'set_{set.id}')
+    keyboard.button(text='назад', callback_data='назад')
+    await callback.message.edit_text('Выберите сет:', reply_markup=keyboard.adjust(3).as_markup())
+
+
+@router.callback_query(FindGame.vote_for_set)
+async def vote_for_set(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FindGame.enter_game_account)
+    set_id = callback.data.split("_")[1]
+    await state.update_data(set_id=set_id)
+    keyboard = InlineKeyboardBuilder()
+    #keyboard.button(text='update', callback_data='update')
+    keyboard.button(text='назад', callback_data='назад')
+    await callback.message.edit_text('Введите ваш ник в МТГА вида NickName####', reply_markup=keyboard.adjust(3).as_markup())
+
+
+# Message хендлер имя аккаунта
+@router.message(FindGame.enter_game_account)
+async def enter_game_account(message: Message, state: FSMContext):
+    data = await state.get_data()
+    tournament_id = data.get('tournament_id')
+    set_id = data.get('set_id')
+    user_id = message.from_user.id
+    print(f"\033[92m {tournament_id}, {set_id}, {user_id} \033[0m")
+    await AsyncCore.register_user_for_tournament(user_id, tournament_id, set_id)
+    await message.answer("Вы успешно зарегистрированы на турнир.")
 
 @router.callback_query(F.data == 'my_games')
 async def tournament_info(callback: CallbackQuery, state: FSMContext):

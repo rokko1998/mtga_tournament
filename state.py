@@ -10,7 +10,7 @@ class FindGame(StatesGroup):
 class MyGames(StatesGroup):
     my_games_menu = State()
     registered_tournament_info = State()
-    update_set_preference = State()
+    choese_set = State()
     update_game_account = State()
     ongoing_tournament = State()
     enter_match_result = State()

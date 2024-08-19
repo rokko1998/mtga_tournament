@@ -6,8 +6,6 @@ from database.models import *
 from datetime import datetime, timedelta
 
 
-
-
 engine = create_async_engine(url='sqlite+aiosqlite:///tg_bot_db.sqlite3', echo=True)
 async_session = async_sessionmaker(engine)
 
@@ -86,11 +84,60 @@ class AsyncCore:
             result = await session.execute(stmt)
             return result.scalars().unique().one_or_none()
 
-
     @staticmethod
     async def get_set():
         async with async_session() as session:
-            return await session.scalar(select(SetORM)).all()
+            result = await session.execute(select(SetORM))
+            return result.scalars().all()
+
+    @staticmethod
+    async def register_user_for_tournament(user_id: BigInteger, tournament_id: int, set_id: int):
+        async with async_session() as session:
+            # Проверяем, если пользователь уже зарегистрирован на этот турнир
+            existing_registration = await session.scalar(
+                select(RegistrationORM)
+                .where(RegistrationORM.user_id == user_id)
+                .where(RegistrationORM.tournament_id == tournament_id)
+            )
+
+            if existing_registration:
+                return existing_registration  # Если регистрация уже есть, возвращаем её
+
+            # Создаем новую запись о регистрации
+            registration = RegistrationORM(
+                user_id=user_id,
+                tournament_id=tournament_id,
+                status=RegStatus.CONFIRMED  # Статус регистрации по умолчанию
+            )
+
+            # Добавляем регистрацию в сессию
+            session.add(registration)
+
+            # Обновляем данные в таблице голосования за сет
+            set_vote = await session.scalar(
+                select(SetVoteORM)
+                .where(SetVoteORM.user_id == user_id)
+                .where(SetVoteORM.tournament_id == tournament_id)
+                .where(SetVoteORM.set_id == set_id)
+            )
+
+            if set_vote:
+                set_vote.votes += 1  # Обновляем голос
+            else:
+                set_vote = SetVoteORM(
+                    tournament_id=tournament_id,
+                    set_id=set_id,
+                    set_name=(await session.scalar(
+                        select(SetORM.set_name).where(SetORM.id == set_id)
+                    )),
+                    votes=1,
+                    user_id=user_id
+                )
+                session.add(set_vote)
+
+            # Фиксируем изменения в базе данных
+            await session.commit()
+            return registration
 
 
     @staticmethod
@@ -170,14 +217,14 @@ class AsyncCore:
         """Получает пользователя по Telegram ID."""
         async with async_session() as session:
             return await session.scalar(select(UserORM).where(UserORM.tg_id == tg_id))
-
-    @staticmethod
-    async def register_user_for_tournament(user_id: int, tournament_id: int):
-        """Регистрирует пользователя на турнир."""
-        async with async_session() as session:
-            async with session.begin():
-                registration = RegistrationORM(user_id=user_id, tournament_id=tournament_id, status='registered')
-                session.add(registration)
+    #
+    # @staticmethod
+    # async def register_user_for_tournament(user_id: int, tournament_id: int):
+    #     """Регистрирует пользователя на турнир."""
+    #     async with async_session() as session:
+    #         async with session.begin():
+    #             registration = RegistrationORM(user_id=user_id, tournament_id=tournament_id, status='registered')
+    #             session.add(registration)
     #
     # @staticmethod
     # async def create_tournament(name: str, date: datetime, status: str, set_name: str):
