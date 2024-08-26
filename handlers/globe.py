@@ -89,7 +89,10 @@ async def back_to_start(callback: CallbackQuery, state: FSMContext):
 # Хендлер кнопки "Турнир #id" в меню "Найти игру", выводит инфу по турниру и разные кнопки
 @router.callback_query(FindGame.find_menu)
 async def find_menu(callback: CallbackQuery, state: FSMContext):
-    tournament_id = callback.data.split("_")[1]
+    try:
+        tournament_id = callback.data.split("_")[1]
+    except:
+        tournament_id = await state.get_data('tournament_id')
     user_id = callback.from_user.id
     await state.update_data(tournament_id=str(tournament_id))
     tournament = await AsyncCore.tournament_details(tournament_id)
@@ -108,7 +111,6 @@ async def find_menu(callback: CallbackQuery, state: FSMContext):
             [f"{reg.user.username} ({', '.join(acc.username for acc in reg.user.accounts)})" for reg in
              registered_players]
         )
-
         top_sets = sorted(set_votes, key=lambda sv: sv.votes, reverse=True)[:3]
         top_sets_info = "\n".join([f"{sv.set_name}: {sv.votes} голосов" for sv in top_sets])
         message = (
@@ -147,7 +149,90 @@ async def find_menu(callback: CallbackQuery, state: FSMContext):
         else:
             await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
 
+    @router.callback_query(F.data == 'my_games')
+    async def tournament_info(callback: CallbackQuery, state: FSMContext):
+        tnmts = await AsyncCore.get_user_tournaments(callback.from_user.id)
+        print(f"\033[92m AsyncCore.get_user_tournaments - ok \033[0m")
+        if not tnmts:
+            dates = await nearest_weekend()
+            keyboard = InlineKeyboardBuilder()
 
+            for date in dates:
+                tournament = await AsyncCore.get_tournament_by_date(date)
+                if tournament:
+                    # Если турнир с такой датой уже существует
+                    tournament_id = tournament.id
+                    tournament_name = tournament.name
+                else:
+                    # Если турнира с такой датой нет, создаём новый
+                    tournament_id, tournament_name = await AsyncCore.create_tournament(date)
+
+                keyboard.button(
+                    text=f'{tournament_name}',
+                    callback_data=f'tournament_{tournament_id}'
+                )
+            keyboard.button(text='Назад', callback_data='back_to_start')
+
+            await callback.answer(f'У вас нет активных турниров\n'
+                                  f'Вы перенаправлены в меню Поиска игры')
+            await state.set_state(FindGame.find_menu)
+            await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
+        elif len(tnmts) == 1:
+            tournament = tnmts[0]
+            await state.set_state(MyGames.tournament_info)
+            await state.update_data(tournament=tournament.id)
+            await callback.answer(f'У вас только один турнир\n'
+                                  f'    Инфо по турниру')
+            tournament = await AsyncCore.tournament_details(tournament.id)
+            # Извлечение данных
+            registered_players = tournament.registrations
+            set_votes = tournament.set_votes
+
+            # Подготовка данных для отправки
+            players_info = "\n".join(
+                [f"{reg.user.username} ({', '.join(acc.username for acc in reg.user.accounts)})" for reg in
+                 registered_players]
+            )
+
+            if tournament.status == TournamentStatus.PLANNED:
+                # Топ-3 сета по голосам
+                top_sets = sorted(set_votes, key=lambda sv: sv.votes, reverse=True)[:3]
+                top_sets_info = "\n".join([f"{sv.set_name}: {sv.votes} голосов" for sv in top_sets])
+                message = (
+                    f"Турнир: {tournament.name}\n"
+                    f"Дата: {tournament.date}\n"
+                    f"Статус: Запланирован\n\n"
+                    f"Зарегистрированные игроки ({len(registered_players)}):\n{players_info}\n\n"
+                    f"Топ-3 сета в голосовании:\n{top_sets_info}"
+                )
+                set_kb = InlineKeyboardBuilder()
+                sets = await AsyncCore.get_set()
+                for set in sets:
+                    set_kb.button(text=set.name, callback_data=set.id)
+                set_kb.button(text='Back', callback_data='back_to_find_menu')
+            else:
+                winning_set_name = (
+                    tournament.winning_set.description if tournament.winning_set else "Сет еще не определен"
+                )
+                message = (
+                    f"Турнир: {tournament.name}\n"
+                    f"Дата: {tournament.date}\n"
+                    f"Статус: {tournament.status.value}\n\n"
+                    f"Зарегистрированные игроки ({len(registered_players)}):\n{players_info}\n\n"
+                    f"Победивший сет: {winning_set_name}"
+                )
+                set_kb = InlineKeyboardBuilder()
+                # Клава-заглушка, надо будет переделать
+                sets = await AsyncCore.get_set()
+                for set in sets:
+                    set_kb.button(text=set.name, callback_data=set.id)
+            await callback.message.edit_text(text=message, reply_markup=set_kb)
+        else:
+            await state.set_state(MyGames.my_games_menu)
+            keyboard = InlineKeyboardBuilder()
+            for tnmt in tnmts:
+                keyboard.button(text=tnmt.name, callback_data=f'tournament_{tnmt.id}')
+            await callback.message.edit_text('Ваши туриниры:', reply_markup=keyboard.adjust(2).as_markup())
 
     #пытаюсь собрать этот большой и сложный хендлер
 
@@ -158,7 +243,7 @@ async def tournament_info(callback: CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardBuilder()
     for set in sets:
         keyboard.button(text=set.set_name, callback_data=f'set_{set.id}')
-    keyboard.button(text='назад', callback_data='назад')
+    keyboard.button(text='назад', callback_data=f'Back_{set.id}')
     await callback.message.edit_text('Выберите сет:', reply_markup=keyboard.adjust(3).as_markup())
 
 
@@ -183,91 +268,6 @@ async def enter_game_account(message: Message, state: FSMContext):
     print(f"\033[92m {tournament_id}, {set_id}, {user_id} \033[0m")
     await AsyncCore.register_user_for_tournament(user_id, tournament_id, set_id)
     await message.answer("Вы успешно зарегистрированы на турнир.")
-
-@router.callback_query(F.data == 'my_games')
-async def tournament_info(callback: CallbackQuery, state: FSMContext):
-    tnmts = await AsyncCore.get_user_tournaments(callback.from_user.id)
-    print(f"\033[92m AsyncCore.get_user_tournaments - ok \033[0m")
-    if not tnmts:
-        dates = await nearest_weekend()
-        keyboard = InlineKeyboardBuilder()
-
-        for date in dates:
-            tournament = await AsyncCore.get_tournament_by_date(date)
-            if tournament:
-                # Если турнир с такой датой уже существует
-                tournament_id = tournament.id
-                tournament_name = tournament.name
-            else:
-                # Если турнира с такой датой нет, создаём новый
-                tournament_id, tournament_name = await AsyncCore.create_tournament(date)
-
-            keyboard.button(
-                text=f'{tournament_name}',
-                callback_data=f'tournament_{tournament_id}'
-            )
-        keyboard.button(text='Назад', callback_data='back_to_start')
-
-        await callback.answer(f'У вас нет активных турниров\n'
-                              f'Вы перенаправлены в меню Поиска игры')
-        await state.set_state(FindGame.find_menu)
-        await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
-    elif len(tnmts) == 1:
-        tournament = tnmts[0]
-        await state.set_state(MyGames.registered_tournament_info)
-        await state.update_data(tournament=tournament.id)
-        await callback.answer(f'У вас только один турнир\n'
-                              f'    Инфо по турниру')
-        tournament = await AsyncCore.tournament_details(tournament.id)
-        # Извлечение данных
-        registered_players = tournament.registrations
-        set_votes = tournament.set_votes
-
-        # Подготовка данных для отправки
-        players_info = "\n".join(
-            [f"{reg.user.username} ({', '.join(acc.username for acc in reg.user.accounts)})" for reg in
-             registered_players]
-        )
-
-        if tournament.status == TournamentStatus.PLANNED:
-            # Топ-3 сета по голосам
-            top_sets = sorted(set_votes, key=lambda sv: sv.votes, reverse=True)[:3]
-            top_sets_info = "\n".join([f"{sv.set_name}: {sv.votes} голосов" for sv in top_sets])
-            message = (
-                f"Турнир: {tournament.name}\n"
-                f"Дата: {tournament.date}\n"
-                f"Статус: Запланирован\n\n"
-                f"Зарегистрированные игроки ({len(registered_players)}):\n{players_info}\n\n"
-                f"Топ-3 сета в голосовании:\n{top_sets_info}"
-            )
-            set_kb = InlineKeyboardBuilder()
-            sets = await AsyncCore.get_set()
-            for set in sets:
-                set_kb.button(text=set.name, callback_data=set.id)
-            set_kb.button(text='Back', callback_data='back_to_find_menu')
-        else:
-            winning_set_name = (
-                tournament.winning_set.description if tournament.winning_set else "Сет еще не определен"
-            )
-            message = (
-                f"Турнир: {tournament.name}\n"
-                f"Дата: {tournament.date}\n"
-                f"Статус: {tournament.status.value}\n\n"
-                f"Зарегистрированные игроки ({len(registered_players)}):\n{players_info}\n\n"
-                f"Победивший сет: {winning_set_name}"
-            )
-            set_kb = InlineKeyboardBuilder()
-            # Клава-заглушка, надо будет переделать
-            sets = await AsyncCore.get_set()
-            for set in sets:
-                set_kb.button(text=set.name, callback_data=set.id)
-        await callback.message.edit_text(text=message, reply_markup=set_kb)
-    else:
-        await state.set_state(MyGames.my_games_menu)
-        keyboard = InlineKeyboardBuilder()
-        for tnmt in tnmts:
-            keyboard.button(text=tnmt.name, callback_data=f'tournament_{tnmt.id}')
-        await callback.message.edit_text('Ваши туриниры:', reply_markup=keyboard.adjust(2).as_markup())
 
 
 
