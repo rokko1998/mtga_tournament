@@ -27,6 +27,7 @@ async def start_bot(bot: Bot):
 
 dp.startup.register(start_bot)
 
+
 async def main():
     try:
         await AsyncCore.create_tables()

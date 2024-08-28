@@ -17,7 +17,7 @@ updated_at = Annotated[datetime.datetime, mapped_column(server_default=func.now(
 class TournamentStatus(enum.Enum):
     PLANNED = "planned" # идет регистрация участников
     UPCOMING = "upcoming" # Турнир начат, идет процесс драфта, игры еще не начались
-    ONGOING = "ongoing" # драфт закончен, начаты игры
+    ONGOING = "ongoing" # драфт закончен, проходят игры
     COMPLETED = "completed" # турнир завершен
     CANCELLED = "cancelled" # турнир отменен
 

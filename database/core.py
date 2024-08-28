@@ -74,6 +74,7 @@ class AsyncCore:
             stmt = (
                 select(TournamentORM)
                 .options(
+                    #Возможно оптимальнее использовать selectinload
                     joinedload(TournamentORM.registrations).joinedload(RegistrationORM.user).joinedload(
                         UserORM.accounts),
                     joinedload(TournamentORM.set_votes),
@@ -91,7 +92,7 @@ class AsyncCore:
             return result.scalars().all()
 
     @staticmethod
-    async def register_user_for_tournament(user_id: BigInteger, tournament_id: int, set_id: int):
+    async def register_user_for_tournament(user_id: int, tournament_id: int, set_id: int):
         async with async_session() as session:
             # Проверяем, если пользователь уже зарегистрирован на этот турнир
             existing_registration = await session.scalar(
