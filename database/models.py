@@ -1,11 +1,12 @@
 import datetime
 import enum
 
-from sqlalchemy import BigInteger, ForeignKey, func, String, select
+from sqlalchemy import BigInteger, ForeignKey, func, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, Relationship, mapped_column
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.ext.hybrid import hybrid_property
 from typing import Annotated, List
+from sqlalchemy.ext.hybrid import hybrid_property
+
 
 str_256 = Annotated[str, mapped_column(String(256))]
 stat = Annotated[int, mapped_column(default=0)]

@@ -69,21 +69,58 @@ class AsyncCore:
 
 
     @staticmethod
-    async def tournament_details(tournament_id: int):
+    async def tournament_details(tournament_id: int) -> dict:
         async with async_session() as session:
+            # Запрашиваем данные по турниру
             stmt = (
-                select(TournamentORM)
-                .options(
-                    #Возможно оптимальнее использовать selectinload
-                    joinedload(TournamentORM.registrations).joinedload(RegistrationORM.user).joinedload(
-                        UserORM.accounts),
-                    joinedload(TournamentORM.set_votes),
-                    joinedload(TournamentORM.winning_set)
+                select(
+                    TournamentORM.name,
+                    TournamentORM.date,
+                    TournamentORM.status,
+                    UserORM.username,
+                    MtgORM.username.label("mtg_username"),
+                    SetVoteORM.set_name,
+                    SetVoteORM.votes
                 )
-                .where(TournamentORM.id == tournament_id)
+                .join(RegistrationORM, RegistrationORM.tournament_id == TournamentORM.id)
+                .join(UserORM, UserORM.id == RegistrationORM.user_id)
+                .outerjoin(MtgORM, MtgORM.user_id == UserORM.id)
+                .outerjoin(SetVoteORM, SetVoteORM.tournament_id == TournamentORM.id)
+                .filter(TournamentORM.id == tournament_id)
+                .order_by(SetVoteORM.votes.desc())
             )
+
             result = await session.execute(stmt)
-            return result.scalars().unique().one_or_none()
+            rows = result.fetchall()
+
+            if not rows:
+                return f"error: Tournament not found, {tournament_id}"
+
+            # Извлечение данных
+            tournament_name = rows[0].name
+            tournament_date = rows[0].date
+            tournament_status = rows[0].status
+
+            # Зарегистрированные игроки
+            registered_players = {}
+            for row in rows:
+                if row.username not in registered_players:
+                    registered_players[row.username] = row.mtg_username
+
+            # Топ-3 сетов
+            top_sets = []
+            for row in rows[:3]:  # берем первые три строки, т.к. они отсортированы по голосам
+                top_sets.append({"set_name": row.set_name, "votes": row.votes})
+
+            # Формируем результат
+            details = {
+                "tournament_name": tournament_name,
+                "tournament_date": tournament_date,
+                "tournament_status": tournament_status,
+                "registered_players": registered_players,
+                "top_sets": top_sets,
+            }
+            return details
 
     @staticmethod
     async def get_set():
@@ -92,53 +129,67 @@ class AsyncCore:
             return result.scalars().all()
 
     @staticmethod
-    async def register_user_for_tournament(user_id: int, tournament_id: int, set_id: int):
+    async def register_user_for_tournament(tg_id: int, tournament_id: int, set_id: int):
         async with async_session() as session:
-            # Проверяем, если пользователь уже зарегистрирован на этот турнир
-            existing_registration = await session.scalar(
-                select(RegistrationORM)
-                .where(RegistrationORM.user_id == user_id)
-                .where(RegistrationORM.tournament_id == tournament_id)
-            )
+            try:
+                # Создаем подзапрос для получения user_id по tg_id
+                subquery_user_id = select(UserORM.id).filter(UserORM.tg_id == tg_id).scalar_subquery()
 
-            if existing_registration:
-                return existing_registration  # Если регистрация уже есть, возвращаем её
+                # Проверяем, существует ли пользователь с данным tg_id
+                user_id = await session.scalar(subquery_user_id)
+                if not user_id:
+                    return {"error": "User not found"}
 
-            # Создаем новую запись о регистрации
-            registration = RegistrationORM(
-                user_id=user_id,
-                tournament_id=tournament_id,
-                status=RegStatus.CONFIRMED  # Статус регистрации по умолчанию
-            )
-
-            # Добавляем регистрацию в сессию
-            session.add(registration)
-
-            # Обновляем данные в таблице голосования за сет
-            set_vote = await session.scalar(
-                select(SetVoteORM)
-                .where(SetVoteORM.user_id == user_id)
-                .where(SetVoteORM.tournament_id == tournament_id)
-                .where(SetVoteORM.set_id == set_id)
-            )
-
-            if set_vote:
-                set_vote.votes += 1  # Обновляем голос
-            else:
-                set_vote = SetVoteORM(
-                    tournament_id=tournament_id,
-                    set_id=set_id,
-                    set_name=(await session.scalar(
-                        select(SetORM.set_name).where(SetORM.id == set_id)
-                    )),
-                    votes=1,
-                    user_id=user_id
+                # Проверяем, если пользователь уже зарегистрирован на этот турнир
+                existing_registration = await session.scalar(
+                    select(RegistrationORM)
+                    .where(RegistrationORM.user_id == user_id)
+                    .where(RegistrationORM.tournament_id == tournament_id)
                 )
-                session.add(set_vote)
 
-            # Фиксируем изменения в базе данных
-            await session.commit()
-            return registration
+                if existing_registration:
+                    return {"message": "User already registered"}
+
+                # Создаем новую запись о регистрации
+                registration = RegistrationORM(
+                    user_id=user_id,
+                    tournament_id=tournament_id,
+                    status=RegStatus.CONFIRMED  # Статус регистрации по умолчанию
+                )
+
+                # Добавляем регистрацию в сессию
+                session.add(registration)
+
+                # Обновляем данные в таблице голосования за сет
+                set_vote = await session.scalar(
+                    select(SetVoteORM)
+                    .where(SetVoteORM.user_id == user_id)
+                    .where(SetVoteORM.tournament_id == tournament_id)
+                    .where(SetVoteORM.set_id == set_id)
+                )
+
+                if set_vote:
+                    set_vote.votes += 1  # Обновляем голос
+                else:
+                    set_name = await session.scalar(
+                        select(SetORM.set_name).where(SetORM.id == set_id)
+                    )
+                    set_vote = SetVoteORM(
+                        tournament_id=tournament_id,
+                        set_id=set_id,
+                        set_name=set_name,
+                        votes=1,
+                        user_id=user_id
+                    )
+                    session.add(set_vote)
+
+                # Фиксируем изменения в базе данных
+                await session.commit()
+                return {"success": True, "message": "User successfully registered for the tournament"}
+
+            except Exception as e:
+                await session.rollback()  # Откат изменений в случае ошибки
+                return {"error": str(e)}
 
 
     @staticmethod
@@ -189,58 +240,11 @@ class AsyncCore:
         async with async_session() as session:
             return await session.scalar(select(TournamentORM).where(TournamentORM.date == date))
 
-    # @staticmethod
-    # async def get_tournament_by_date(dates: list[datetime]):
-    #     async with async_session() as session:
-    #         return await session.scalars(select(TournamentORM).where(TournamentORM.date.in_(dates)))
-    #
-
-
-    # @staticmethod
-    # async def create_tournament(date: datetime):
-    #     """Создает турнир на указанную дату и возвращает его ID."""
-    #     async with async_session() as session:
-    #         result = await session.execute(
-    #             insert(TournamentORM)
-    #             .values(
-    #                 name=f"Турнир {date.strftime('%Y-%m-%d %H:%M')}",
-    #                 date=date,
-    #                 status=TournamentStatus.PLANNED,
-    #             )
-    #             .returning(TournamentORM.id, TournamentORM.name)
-    #         )
-    #         await session.commit()
-    #         return result.fetchone()
-
-
     @staticmethod
     async def get_user_by_tg_id(tg_id: int):
         """Получает пользователя по Telegram ID."""
         async with async_session() as session:
             return await session.scalar(select(UserORM).where(UserORM.tg_id == tg_id))
-    #
-    # @staticmethod
-    # async def register_user_for_tournament(user_id: int, tournament_id: int):
-    #     """Регистрирует пользователя на турнир."""
-    #     async with async_session() as session:
-    #         async with session.begin():
-    #             registration = RegistrationORM(user_id=user_id, tournament_id=tournament_id, status='registered')
-    #             session.add(registration)
-    #
-    # @staticmethod
-    # async def create_tournament(name: str, date: datetime, status: str, set_name: str):
-    #     """Создает новый турнир."""
-    #     async with async_session() as session:
-    #         async with session.begin():
-    #             tournament = TournamentORM(
-    #                 name=f"Турнир на {date.strftime('%d.%m %H:%M')}",
-    #                 date=date,
-    #                 status=TournamentStatus.UPCOMING,
-    #                 set="",
-    #                 created_at=datetime.utcnow(),
-    #                 updated_at=datetime.utcnow(),
-    #             )
-    #             session.add(tournament)
 
     @staticmethod
     async  def set_tournament_set():

@@ -24,3 +24,32 @@ async def nearest_weekend():
     ]
 
     return dates
+
+async def get_info(tournament):
+    # Проверка на наличие ошибки
+    if "error" in tournament:
+        return f"Ошибка: {tournament['error']}"
+
+    # Формирование заголовка
+    message = f"<b>🏆 Турнир: </b> {tournament['tournament_name']}\n"
+    message += f"<b>📅 Дата: </b> {tournament['tournament_date'].strftime('%Y-%m-%d %H:%M')}\n"
+    message += f"<b>🔖 Статус: </b> {tournament['tournament_status'].value.capitalize()}\n\n"
+
+    # Список зарегистрированных игроков
+    message += "<b>👥 Зарегистрированные игроки:</b>\n"
+    for username, mtg_username in tournament["registered_players"].items():
+        message += f"- {username} (MTG: {mtg_username})\n"
+
+    if not tournament["registered_players"]:
+        message += "Нет зарегистрированных игроков.\n"
+
+    message += "\n"
+
+    # Топ-3 сета в голосовании
+    message += "<b>🏅 Топ-3 сета в голосовании:</b>\n"
+    for i, set_info in enumerate(tournament["top_sets"], start=1):
+        message += f"{i}. {set_info['set_name']} - {set_info['votes']} голосов\n"
+
+    if not tournament["top_sets"]:
+        message += "Нет голосов за сеты.\n"
+    return message

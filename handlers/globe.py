@@ -1,4 +1,4 @@
-from aiogram import F, Router
+from aiogram import F, Router, Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -8,6 +8,7 @@ from keyboards.main_kb import start_kb, nearest_weekend
 from state import FindGame,MyGames, Stats
 from database.core import AsyncCore
 from database.models import TournamentStatus
+from utils import *
 
 
 router = Router()
@@ -20,17 +21,18 @@ router = Router()
 
 # Message хендлер команды старт, главное меню
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     await AsyncCore.add_user(message.from_user.id, message.from_user.username)
     await state.clear()
     sts = await AsyncCore.get_user_sts(message.from_user.id)
     total_games = sts.wins + sts.losses
+
     if total_games > 0:
         winrate = (sts.wins / total_games) * 100
         winrate_text = f"{winrate:.2f}%"
     else:
         winrate_text = "N/A"
-    # await router.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     await message.answer(text=f'Привет, {sts.username},\n'
                               f'Добро пожаловать в таверну "Гнутая мишень"!\n'
                               f'Здесь ты можешь записаться на драфт в МТГА\n\n'
@@ -97,60 +99,15 @@ async def find_menu(callback: CallbackQuery, state: FSMContext):
         tournament_id = await state.get_data('tournament_id')
     user_id = callback.from_user.id
     await state.update_data(tournament_id=str(tournament_id))
+    tournament_id = int(tournament_id)
+    print(f"\033[92m {tournament_id} \033[0m")
     tournament = await AsyncCore.tournament_details(tournament_id)
-    # print(f"\033[92m AsyncCore.tournament_details - ok \033[0m")
-    # Извлечение данных
-    registered_players = tournament.registrations
-    # отладка
-    for reg in registered_players:
-        if reg.user:
-            print(f"User: {reg.user.username}, Accounts: {[acc.username for acc in reg.user.accounts]}")
-        else:
-            print("No user data")
-    set_votes = tournament.set_votes
-    winning_set_name = (tournament.winning_set.description if tournament.winning_set else "Сет еще не определен")
-
-    # условие для выбора клавиатуры/текста
-    user_registered = any(reg.user_id == user_id for reg in tournament.registrations)
     keyboard = InlineKeyboardBuilder()
-    if tournament.status == TournamentStatus.PLANNED:
-        # Подготовка данных для отправки
-        # Собираем информацию о каждом зарегистрированном игроке
-        players_info_list = []
-
-        for reg in registered_players:
-            # Получаем имя пользователя
-            username = reg.user.username if reg.user else "Unknown User"
-
-            # Получаем имена всех аккаунтов пользователя, если они есть
-            account_usernames = [acc.username for acc in reg.user.accounts] if reg.user else []
-
-            # Объединяем все имена аккаунтов в одну строку через запятую
-            accounts_info = ", ".join(account_usernames) if account_usernames else "No accounts"
-
-            # Формируем строку с именем пользователя и его аккаунтами
-            player_info = f"{username} ({accounts_info})"
-
-            # Добавляем строку в список
-            players_info_list.append(player_info)
-
-        # Объединяем все строки в одну через символ новой строки
-        players_info = "\n".join(players_info_list)
-        # Сортируем сетовые голоса и берем топ-3
-        top_sets = sorted(set_votes, key=lambda sv: sv.votes, reverse=True)[:3]
-
-        # Формируем информацию о топ-3 сетах
-        top_sets_info_list = [f"{sv.set_name}: {sv.votes} голосов" for sv in top_sets]
-        top_sets_info = "\n".join(top_sets_info_list)
-
-        # Формируем финальное сообщение
-        message = (
-            f"Турнир: {tournament.name}\n"
-            f"Дата: {tournament.date}\n"
-            f"Статус: Запланирован\n\n"
-            f"Зарегистрированные игроки ({len(registered_players)}):\n{players_info}\n\n"
-            f"Топ-3 сета в голосовании:\n{top_sets_info}"
-        )
+    # Проверка, зарегистрирован ли пользователь
+    print(f"\033[92m {tournament} \033[0m")
+    user_registered = user_id in tournament['registered_players'].keys()
+    if tournament['tournament_status'] == TournamentStatus.PLANNED:
+        message = await get_info(tournament)
 
         if user_registered:
             await state.set_state(MyGames.my_games_menu)
@@ -169,13 +126,13 @@ async def find_menu(callback: CallbackQuery, state: FSMContext):
             )
             await callback.message.edit_text(text=message, reply_markup=keyboard.as_markup())
     #TODO доделать для других статусов турнира
-    elif tournament.status == TournamentStatus.UPCOMING:
+    elif tournament['tournament_status'] == TournamentStatus.UPCOMING:
         if user_registered:
             await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
         else:
             await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
 
-    elif tournament.status == TournamentStatus.ONGOING:
+    elif tournament['tournament_status'] == TournamentStatus.ONGOING:
         if user_registered:
             await callback.message.edit_text('Выберите турнир:', reply_markup=keyboard.adjust(2).as_markup())
         else:
@@ -285,9 +242,9 @@ async def enter_game_account(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     tournament_id = int(data.get('tournament_id'))
     set_id = callback.data.split("_")[1]
-    user_id = callback.from_user.id
-    print(f"\033[92m {tournament_id}, {set_id}, {user_id} \033[0m")
-    await AsyncCore.register_user_for_tournament(user_id, tournament_id, set_id)
+    tg_id = callback.from_user.id
+    # print(f"\033[92m {tournament_id}, {set_id}, {user_id} \033[0m")
+    await AsyncCore.register_user_for_tournament(tg_id, tournament_id, set_id)
     await callback.message.edit_text("Вы успешно зарегистрированы на турнир.", reply_markup=start_kb)
     #TODO инфо по турниру и клавиатура
 
